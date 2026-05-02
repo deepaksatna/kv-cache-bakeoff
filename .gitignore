@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local secrets — make sure none ever land here
+*.key
+*.pem
+*ngc-api*
+*api-token*
+.env
+.env.local
+
+# Local re-runs you don't want to commit (override per-run if you do want them)
+results/local-*
+plots/local-*

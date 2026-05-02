@@ -1,0 +1,72 @@
+DEBUG:oci_cli.cli_util:Check if Propagation Enabled: None
+DEBUG:oci_cli.cli_util:Is Propagation Enabled: None
+[1/5] depth=0.10 hit=True in=6919tok out=257tok wall=4609ms answer='93810-ALPHA'
+[2/5] depth=0.30 hit=True in=6919tok out=325tok wall=4925ms answer='13278-GAMMA'
+[3/5] depth=0.50 hit=True in=6919tok out=257tok wall=3903ms answer='46048-ALPHA'
+[4/5] depth=0.70 hit=True in=6920tok out=350tok wall=5069ms answer='39256-ALPHA'
+[5/5] depth=0.90 hit=True in=6920tok out=345tok wall=4901ms answer='23434-GAMMA'
+
+=== SMOKE TEST: 5/5 hits ===
+{
+  "summary": {
+    "total": 5,
+    "hits": 5
+  },
+  "results": [
+    {
+      "i": 0,
+      "depth": 0.1,
+      "code": "93810-ALPHA",
+      "hit": true,
+      "answer": "93810-ALPHA",
+      "raw_first_200": "<think>\nOkay, let's see. The user provided a big block of text, which seems to be a lot of repeated sentences. The task is to find the secret passcode mentioned in there.\n\nFirst, I need to scan throug",
+      "wall_ms": 4609.0,
+      "in_tok": 6919,
+      "out_tok": 257
+    },
+    {
+      "i": 1,
+      "depth": 0.3,
+      "code": "13278-GAMMA",
+      "hit": true,
+      "answer": "13278-GAMMA",
+      "raw_first_200": "<think>\nOkay, let's see. The user provided a long block of text filled with repeated sentences about the grass being green, the sky blue, the sun rising in the east, coffee being best served hot, moun",
+      "wall_ms": 4925.0,
+      "in_tok": 6919,
+      "out_tok": 325
+    },
+    {
+      "i": 2,
+      "depth": 0.5,
+      "code": "46048-ALPHA",
+      "hit": true,
+      "answer": "46048-ALPHA",
+      "raw_first_200": "<think>\nOkay, let's see. The user provided a long block of text filled with repeated sentences about the grass being green, the sky blue, the sun rising in the east, coffee being best served hot, moun",
+      "wall_ms": 3903.0,
+      "in_tok": 6919,
+      "out_tok": 257
+    },
+    {
+      "i": 3,
+      "depth": 0.7,
+      "code": "39256-ALPHA",
+      "hit": true,
+      "answer": "39256-ALPHA",
+      "raw_first_200": "<think>\nOkay, let's see. The user provided a long block of text filled with repeated sentences about the grass being green, the sky blue, the sun rising in the east, coffee being best served hot, moun",
+      "wall_ms": 5069.0,
+      "in_tok": 6920,
+      "out_tok": 350
+    },
+    {
+      "i": 4,
+      "depth": 0.9,
+      "code": "23434-GAMMA",
+      "hit": true,
+      "answer": "23434-GAMMA",
+      "raw_first_200": "<think>\nOkay, let's see. The user provided a long block of text filled with repeated sentences about the grass being green, the sky blue, the sun rising in the east, coffee being best served hot, moun",
+      "wall_ms": 4901.0,
+      "in_tok": 6920,
+      "out_tok": 345
+    }
+  ]
+}

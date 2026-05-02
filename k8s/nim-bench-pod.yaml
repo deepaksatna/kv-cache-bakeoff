@@ -1,0 +1,60 @@
+# Reproducer manifest for benchmarking an NVIDIA NIM container on a single GPU node.
+#
+# Replace the placeholders below before applying:
+#   <NAMESPACE>             — kubernetes namespace (e.g. kv-bench)
+#   <NODE_NAME>             — the worker node holding the 8 GPUs (e.g. 10.0.x.x)
+#   <NIM_IMAGE>             — nvcr.io/nim/.../<model>:<version>
+#   <NIM_PROFILE_HASH>      — full hex profile id from /opt/nim/etc/default/model_manifest.yaml
+#   <CACHE_PATH_ON_NODE>    — node-local hostPath to cache the model (e.g. /opt/nim-cache/<model>)
+#   <NGC_SECRET_NAME>       — name of the k8s secret holding NGC_API_KEY
+#
+# Notes:
+#   * `hostPath` is intentional — the model is ~100GB and we want it cached on the worker's local NVMe,
+#     not over a shared filesystem. Cache survives pod replacement (config swaps).
+#   * `initContainers.fix-perms` opens the hostPath dir for the non-root NIM user.
+#   * `gpu_memory_utilization=0.90` matches the production NIM Helm default.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bench-nim
+  namespace: <NAMESPACE>
+  labels: { app: bench-nim }
+spec:
+  nodeName: <NODE_NAME>
+  restartPolicy: Never
+  initContainers:
+  - name: fix-perms
+    image: busybox:1.36
+    command: ["sh", "-c", "chmod -R 0777 /model-store && echo perms-ok"]
+    volumeMounts:
+    - { name: model-store, mountPath: /model-store }
+  containers:
+  - name: nim
+    image: <NIM_IMAGE>
+    imagePullPolicy: IfNotPresent
+    ports: [{ containerPort: 8000, name: http }]
+    env:
+    - { name: NIM_CACHE_PATH, value: /model-store }
+    - { name: NIM_SERVER_PORT, value: "8000" }
+    - { name: NIM_LOG_LEVEL, value: INFO }
+    - { name: NIM_MODEL_PROFILE, value: <NIM_PROFILE_HASH> }
+    - { name: NIM_GPU_MEMORY_UTILIZATION, value: "0.90" }
+    - name: NGC_API_KEY
+      valueFrom: { secretKeyRef: { name: <NGC_SECRET_NAME>, key: NGC_API_KEY } }
+    resources:
+      limits: { nvidia.com/gpu: 8 }
+    volumeMounts:
+    - { name: model-store, mountPath: /model-store }
+    - { name: dshm, mountPath: /dev/shm }
+  volumes:
+  - { name: model-store, hostPath: { path: <CACHE_PATH_ON_NODE>, type: DirectoryOrCreate } }
+  - { name: dshm, emptyDir: { medium: Memory } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bench-nim
+  namespace: <NAMESPACE>
+spec:
+  selector: { app: bench-nim }
+  ports: [{ port: 8000, targetPort: 8000 }]

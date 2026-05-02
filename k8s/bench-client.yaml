@@ -1,0 +1,22 @@
+# In-cluster Python pod that drives the bench against the NIM Service.
+# Uses only stdlib so no pip wait. Sleep-infinity, scripts mounted from a configmap.
+#
+# kubectl create configmap -n <NAMESPACE> bench-scripts \
+#   --from-file=smoke_niah.py=bench/smoke_niah.py \
+#   --from-file=full_bench.py=bench/full_bench.py \
+#   --from-file=concurrency_bench.py=bench/concurrency_bench.py
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bench-client
+  namespace: <NAMESPACE>
+spec:
+  restartPolicy: Never
+  containers:
+  - name: client
+    image: python:3.11-slim
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - { name: scripts, mountPath: /scripts }
+  volumes:
+  - { name: scripts, configMap: { name: bench-scripts } }
