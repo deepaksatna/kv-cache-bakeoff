@@ -1,17 +1,39 @@
-# KV-Cache Bake-Off — TRT-LLM vs vLLM on a Reasoning Model
+# KV-Cache Bake-Off — A Portable Benchmarking Framework for LLM Inference Engines
 
-> Independent, reproducible KV-cache benchmark of NVIDIA NIM running the same model on two different inference engines (TRT-LLM and vLLM), on the same 8× A100 SXM4 40GB hardware.
+> A reproducible framework for measuring KV-cache behaviour, latency, and throughput of LLM inference engines on a fixed hardware target. Reference implementation runs NVIDIA NIM with two engines (TRT-LLM and vLLM) on the same model and the same 8× A100 SXM4 40GB node.
 >
-> **Headline:** at 64K context with `nvidia/llama-3.3-nemotron-super-49b-v1.5`, **TRT-LLM completes a typical reasoning request 33–49% faster than vLLM** with identical quality (100% needle recall on both).
+> **Reference result:** at 64K context with `nvidia/llama-3.3-nemotron-super-49b-v1.5`, **TRT-LLM completes a typical reasoning request 33–49% faster than vLLM** with identical quality (100% needle recall on both).
 
-This is the companion repo to **Issue 7 of [Beyond the Model](https://www.linkedin.com/in/your-handle/)**.
-All raw data, scripts, manifests, and plots are in this repo so you can reproduce the runs or audit the methodology.
+The repo is structured as a framework — the methodology, scripts, and manifests are intentionally engine- and infrastructure-agnostic. The reference numbers below come from one specific cluster; the same scripts run unchanged against any OpenAI-compatible `/v1/chat/completions` endpoint. With small edits to one Kubernetes manifest you can repoint at any GPU node, any engine, any model. See [§ Adapting the framework](#adapting-the-framework-to-your-infrastructure) below.
 
 ---
 
-## TL;DR plots
+## Why this framework matters
 
-### 1. End-to-end latency (the cover chart)
+The KV cache is the dominant memory consumer and the dominant latency variable in LLM inference. Two engines running the same model on the same hardware can differ by 30%+ on wall-clock latency, 20%+ on per-token latency, and 10%+ on usable KV pool size — purely from engine implementation choices (attention kernel, paging strategy, CUDA-graph capture, prefix-cache implementation, plugin overhead).
+
+Most published KV / engine benchmarks have one or more of these problems:
+
+1. **Single-engine measurements.** vLLM blog posts use vLLM. TensorRT-LLM blog posts use TensorRT-LLM. Head-to-head comparisons on the same model + same hardware + same workload are rare.
+2. **Hardware mismatch.** Most modern KV-compression techniques (FP8 KV, NVFP4, KIVI variants in production engines) require Hopper or Blackwell. Numbers from H100/H200/B200 do not transfer to A100, MI300X, or older fleets. Operators of those fleets need their own measurements.
+3. **Workload mismatch.** Plain instruct-model benchmarks miss reasoning-model behaviour. Reasoning models (o1, R1, Nemotron-Super class) emit hundreds-to-thousands of CoT tokens per response, which stresses the KV write path differently from a single-shot answer.
+4. **Non-reproducible.** Numbers without raw data, without engine init logs, without exact profile hashes, without a pre-registered methodology — easy to publish, hard to verify or extend.
+
+This framework addresses all four. It runs *both* engines on *your* hardware against *your* model and emits raw JSONL plus engine init metadata so any number can be audited or re-derived. The scripts are stdlib-Python where possible; the manifests are a single template with placeholders.
+
+### What the framework lets you answer
+
+- Which engine gives lower TTFT / TPOT for my exact model on my exact GPU SKU?
+- How much usable KV pool does each engine give me after engine state overhead?
+- Where is the concurrency crossover between two engines on this hardware?
+- Does enabling a tuning knob (KV dtype, prefix caching, GPU memory utilization) actually change anything, or is the env var silently ignored?
+- What is the cold-start cost of each engine after a pod restart?
+
+---
+
+## TL;DR plots (reference run)
+
+### 1. End-to-end latency
 ![Wall latency by context](plots/01_cover_wall_latency.png)
 
 > TRT-LLM is faster at every context length tested. The gap widens with context — at 64K, TRT-LLM is **33% faster** than vLLM on median wall time.
@@ -21,49 +43,41 @@ All raw data, scripts, manifests, and plots are in this repo so you can reproduc
 
 > vLLM and TRT-LLM are essentially tied on TTFT at small context (150 ms). At 64K, TRT-LLM trims 10% off prefill. **The bigger story is TPOT** — TRT-LLM is a consistent 19–22% faster per output token across all contexts. For a reasoning model that emits hundreds of `<think>` tokens, that compounds.
 
-### 3. Concurrency scaling — the production chart
+### 3. Concurrency scaling
 ![Concurrency scaling](plots/03_concurrency_scaling.png)
 
 > Throughput scales sub-linearly for both engines. TRT-LLM dominates at concurrency 1, 2, and 4. **At concurrency 8, vLLM crosses over** on aggregate throughput (+4%) — but TRT-LLM keeps the latency advantage. *Pick the engine for your concurrency regime.*
 
-### 4. The Pareto frontier — what to actually pick
+### 4. The Pareto frontier
 ![Pareto](plots/04_pareto_throughput_vs_ttft.png)
 
-> Up-and-to-the-right is better. **TRT-LLM's frontier strictly dominates vLLM's at concurrency 1–4.** vLLM only makes sense if your workload is high-concurrency with relaxed TTFT requirements.
+> Up-and-to-the-right is better. **TRT-LLM's frontier strictly dominates vLLM's at concurrency 1–4.** vLLM is the better pick for high-concurrency workloads with relaxed TTFT requirements.
 
 ### 5. KV cache budget — same hardware, different economics
 ![KV pool size](plots/05_kv_pool_size.png)
 
-> vLLM allocates **9% more memory** to the KV cache pool because TRT-LLM reserves more for engine state (CUDA graphs, plugins). On 40 GB cards this matters: vLLM gets ~2 extra GiB per GPU of KV headroom for free.
+> vLLM allocates **9% more memory** to the KV cache pool because TRT-LLM reserves more for engine state (CUDA graphs, plugins). On 40 GB cards that is ~2 extra GiB per GPU of KV headroom for free.
 
 ### 6. Full latency panel (appendix)
 ![Full panel](plots/06_full_latency_panel.png)
 
-> Same data as charts 1–2 above, plus p99 wall time. p99 follows p50 closely — neither engine had pathological tail behavior in this matrix.
+> Same data as charts 1–2 above, plus p99 wall time. p99 follows p50 closely — neither engine had pathological tail behaviour in this matrix.
 
 ---
 
-## Why this benchmark matters
+## Reference findings
 
-The AI infra discourse in 2026 is dominated by KV-cache compression posts (FP8 KV, KIVI, H2O, StreamingLLM, FastGen, etc.). Most of them have three problems:
+These hold for the specific setup under test (`nvidia/llama-3.3-nemotron-super-49b-v1.5`, 8× A100 40GB, BF16 KV, NIM 1.14.0). Re-run the framework on different hardware/model to derive your own.
 
-1. **They run on Hopper or Blackwell.** Every major KV-quantization technique today depends on FP8 cores (sm_89+). If you have A100s — and most enterprise GPU fleets still do — none of these compression papers apply directly to your hardware. **This benchmark documents what compression options actually exist on Ampere.** (Spoiler: zero FP8 KV profiles ship with NIM for A100. Read on.)
+1. **NIM env vars `NIM_KV_CACHE_DTYPE=fp8` and `NIM_ENABLE_KV_CACHE_REUSE=1` are silently ignored** on the vLLM-backed profile of this NIM image. Engine launch command line confirms `kv_cache_dtype=auto` regardless of what is set. The two env vars are TRT-LLM-specific despite the generic naming.
 
-2. **They benchmark a single engine and call it "the" answer.** vLLM blog posts use vLLM. TensorRT-LLM blog posts use TensorRT-LLM. Nobody runs the same model on both with the same workload and reports the head-to-head. **This repo does.**
-
-3. **They use plain instruct models, not reasoning models.** Reasoning models (o1, R1, Nemotron-Super) emit hundreds-to-thousands of CoT tokens per response — **that stresses the KV write path**, not the read path. NIAH-only benchmarks miss this. Llama-3.3-Nemotron-Super-49B was selected here precisely because it's a real reasoning model with 128K native context.
-
-### The five findings the AI community will care about
-
-1. **NIM env vars `NIM_KV_CACHE_DTYPE=fp8` and `NIM_ENABLE_KV_CACHE_REUSE=1` are silently ignored** on the vLLM-backed profile of this NIM image. Engine launch command line confirms `kv_cache_dtype=auto` regardless of what you set. Documentation conflates TRT-LLM and vLLM env knobs.
-
-2. **A100 owners have zero FP8 KV options across all 57 profiles** in this NIM image. Every FP8 / NVFP4 KV profile targets H100, H200, B200, GB200, RTX 6000 Blackwell, GH200, or H100-NVL. **KV compression on Ampere is hardware-locked, not config-locked.**
+2. **A100 owners have zero FP8 KV options across all 57 profiles** in this NIM image. Every FP8 / NVFP4 KV profile targets H100, H200, B200, GB200, RTX 6000 Blackwell, GH200, or H100-NVL. KV compression on Ampere is hardware-locked, not config-locked.
 
 3. **TRT-LLM beats vLLM on this model on every metric except aggregate throughput at high concurrency.** TPOT 19–22% faster across all contexts. Wall-time 17–49% faster. TTFT tied at 4K, 10–13% faster at 64K.
 
 4. **vLLM scales slightly better at high concurrency.** At conc=8, vLLM aggregate throughput edges TRT-LLM (+4%). TRT-LLM still wins TTFT and TPOT.
 
-5. **TRT-LLM has no cold-start stall.** First call after server start: TRT-LLM 4.6 s, vLLM **16.1 s**. vLLM hits a CUDA-graph capture stall on the first request. **Always warm vLLM with synthetic traffic before exposing it to users.**
+5. **TRT-LLM has no cold-start stall.** First call after server start: TRT-LLM 4.6 s, vLLM **16.1 s**. vLLM hits a CUDA-graph capture stall on the first request. Always pre-warm vLLM with synthetic traffic before exposing it to users.
 
 ---
 
@@ -86,7 +100,7 @@ The AI infra discourse in 2026 is dominated by KV-cache compression posts (FP8 K
 
 ---
 
-## Numbers (from `results/`)
+## Reference numbers (from `results/`)
 
 ### NIAH read-pressure (single-needle, 9 calls per cell, 100% recall both)
 
@@ -114,13 +128,14 @@ The AI infra discourse in 2026 is dominated by KV-cache compression posts (FP8 K
 
 ---
 
-## How to use this repo
+## How to use this framework
 
-### 1. Reproduce the benchmark on your own cluster
+### 1. Reproduce the reference run
 
 ```bash
 # Prereqs:
-#   - kubectl access to a cluster with at least one node providing 8× A100 (or 8× any GPU compatible with the chosen NIM profile)
+#   - kubectl access to a cluster with at least one node providing 8× A100
+#     (or 8× any GPU compatible with the chosen NIM profile)
 #   - NGC API key with access to the model
 #   - Python 3.10+
 
@@ -159,25 +174,28 @@ pip install matplotlib numpy
 python3 bench/make_plots.py   # auto-discovers JSONLs in ./results
 ```
 
-### 2. Adapt to a different model or engine
+### Adapting the framework to your infrastructure
 
-The bench scripts talk to **any OpenAI-compatible `/v1/chat/completions` endpoint**. To benchmark vLLM standalone, TGI, SGLang, llama.cpp's OpenAI-compatible server, or another NIM:
+The framework is engine- and platform-agnostic; the changes required to retarget it are minimal.
 
-- Point `--endpoint` at the URL.
-- Pass `--model <model_id>` (defaults to `nvidia/llama-3.3-nemotron-super-49b-v1.5`).
-- The reasoning-model `<think>` extraction in `smoke_niah.py` and `full_bench.py` is harmless on non-reasoning models — it falls through to the raw text.
+| Target change | What to edit | Effort |
+|---|---|---|
+| **Different GPU node** (H100, H200, B200, MI300X, PCIe A100, etc.) | `k8s/nim-bench-pod.yaml` — `nodeSelector`, `nvidia.com/gpu` resource count, NIM profile hash | 1 manifest edit |
+| **Different inference engine** (vanilla vLLM, TGI, SGLang, llama.cpp server) | Replace `k8s/nim-bench-pod.yaml` with the engine's own pod spec; scripts already speak the OpenAI-compatible API | 1 manifest swap |
+| **Different model** | `--model` flag on the bench scripts (defaults to the reference Nemotron model); update NIM profile or engine config to host it | 0 script changes |
+| **Bare-metal, no Kubernetes** | Run the scripts directly from any host with network reach to the engine's HTTP port; skip `k8s/` entirely | 0 script changes |
+| **Different cloud / vendor (AWS, GCP, Azure, on-prem)** | Only the node selector and storage class in the manifest are vendor-specific | 1 manifest edit |
+| **Add a metric** | Add a field in `bench/full_bench.py` or `bench/concurrency_bench.py`, then mirror in `bench/make_plots.py` | Few lines |
+| **Add a workload type** (RULER multi-needle, LongBench, KV-write stress) | New script under `bench/` that emits the same JSONL schema; existing plotter consumes it | 1 new script |
 
-### 3. Add a new metric
+The bench scripts are stdlib-only (no `requests`, no `httpx`, no SDKs) so they drop into any container that has `python3`. The plotter requires only `matplotlib` and `numpy`.
 
-All scripts emit one JSON record per call (or per batch for concurrency). To track a new metric:
+### What the framework does *not* assume
 
-1. Add the field in `bench/full_bench.py` or `bench/concurrency_bench.py`.
-2. Re-run.
-3. Add a chart in `bench/make_plots.py` (model the new function on `plot_ttft_tpot`).
-
-### 4. Cite this repo
-
-If you use it for a comparison post, please link back. If you find a bug or want a methodology change, open an issue or PR.
+- Does not assume NIM. NIM is the reference engine packager because it ships both vLLM and TRT-LLM in one image, but any OpenAI-compatible HTTP endpoint works.
+- Does not assume Kubernetes. The `k8s/` manifests are a convenience; the scripts run from any host.
+- Does not assume CUDA. Any backend that exposes the OpenAI streaming API (CPU inference, ROCm, TPU via a proxy) is testable.
+- Does not assume a specific tokenizer. Token counts are read from `usage.prompt_tokens` / `usage.completion_tokens` returned by the engine.
 
 ---
 
@@ -190,37 +208,35 @@ kv-cache-bakeoff/
 ├── LIMITATIONS.md                 # what we did NOT test, what could differ
 ├── LICENSE                        # MIT
 ├── plots/                         # 6 publication-grade PNGs at 300 DPI
-│   ├── 01_cover_wall_latency.png       — LinkedIn cover
+│   ├── 01_cover_wall_latency.png       — wall-time summary
 │   ├── 02_ttft_tpot_breakdown.png      — latency components
 │   ├── 03_concurrency_scaling.png      — production-load story
 │   ├── 04_pareto_throughput_vs_ttft.png — what-to-pick chart
 │   ├── 05_kv_pool_size.png             — engine memory differences
 │   └── 06_full_latency_panel.png       — 4-up summary
-├── results/                       # raw run artifacts
+├── results/                       # raw run artifacts (reference run)
 │   ├── *__niah.jsonl              — per-call NIAH records
 │   ├── *__conc.jsonl              — concurrency aggregates (with per-request inside)
 │   ├── *__engine_init.txt         — engine RuntimeConfig from NIM logs
 │   ├── *__gpu_post.csv            — 8-GPU mem + power snapshot
 │   └── *__smoke.json              — 5-needle smoke output
-├── bench/                         # measurement scripts
+├── bench/                         # measurement scripts (engine-agnostic)
 │   ├── smoke_niah.py              — single-file, stdlib-only smoke test
 │   ├── full_bench.py              — NIAH sweep (ctx × depth × samples)
 │   ├── concurrency_bench.py       — parallel-request sweep
 │   └── make_plots.py              — regenerate all PNGs from JSONL
-├── k8s/                           # reproducer manifests
-│   ├── nim-bench-pod.yaml         — NIM pod + Service template
-│   └── bench-client.yaml          — in-cluster Python client
-└── docs/                          # additional documents
-    └── (see METHODOLOGY.md and LIMITATIONS.md at root)
+└── k8s/                           # reproducer manifests (NIM reference)
+    ├── nim-bench-pod.yaml         — NIM pod + Service template
+    └── bench-client.yaml          — in-cluster Python client
 ```
 
 ---
 
-## What's NOT in this benchmark (read this before drawing conclusions)
+## What is NOT in this benchmark (read before drawing conclusions)
 
 - **No FP8 / FP4 KV cache** — A100 lacks the cores. See `LIMITATIONS.md` for the H100/H200/B200 pivot.
-- **No 128K context measurement** — capped at 64K to fit the borrow window. Wall p50 at 128K extrapolates to ~14–18 s, but extrapolation isn't measurement.
-- **No reasoning-heavy (KV write) workload** — the bench pod was torn down before the planned `<think>`-burn run. Follow-up post will add it.
+- **No 128K context measurement** — capped at 64K to fit the borrow window. Wall p50 at 128K extrapolates to ~14–18 s, but extrapolation is not measurement.
+- **No reasoning-heavy (KV write) workload** — the bench pod was torn down before the planned `<think>`-burn run.
 - **Single inference engine pair** — TRT-LLM and vLLM. Did not test SGLang, TGI, or llama.cpp.
 - **Single hardware platform** — A100 SXM4 40GB. Results will differ on H100, H200, B200, MI300X, TPU.
 - **Single sample size: 9 NIAH per cell, 2 concurrency batches per cell.** Adequate for the ratios reported. A formal paper would want 30+.
@@ -235,16 +251,16 @@ kv-cache-bakeoff/
 - TTFT measured as time to first SSE chunk with content. TPOT = (wall − TTFT) / (out_tok − 1).
 - Concurrency: ThreadPoolExecutor with N workers, batch wall = max wall across the N parallel requests.
 - Hardware quiescence: only the bench pod ran on the GPU node during measurement. Same node within minutes of each other for both engines.
-- Pre-registered: this README and `METHODOLOGY.md` were committed before the second engine was even pulled, so we couldn't cherry-pick.
+- Pre-registered: `METHODOLOGY.md` was committed before the second engine was pulled, so no number could be cherry-picked.
 
 ---
 
 ## License
 
-MIT. Use freely for benchmarking, comparison, blog posts, internal evaluation. Attribution appreciated but not required.
+MIT. Use freely for benchmarking, comparison, internal evaluation, or as the basis for your own framework.
 
 ---
 
 ## Issues & PRs welcome
 
-If a number looks wrong, the methodology has a bug, or you want to add another engine / hardware platform — open an issue or PR. The point is the AI community can trust this; corrections move that goal forward.
+If a number looks wrong, the methodology has a bug, or you want to add another engine / hardware platform — open an issue or PR.
