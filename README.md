@@ -4,9 +4,9 @@
 >
 > **Reference result:** at 64K context with `nvidia/llama-3.3-nemotron-super-49b-v1.5`, **TRT-LLM completes a typical reasoning request 33–49% faster than vLLM** with identical quality (100% needle recall on both).
 
-The repo is structured as a framework — the methodology, scripts, and manifests are intentionally engine-, model-, and infrastructure-agnostic. The reference numbers below come from one specific run; the same scripts run unchanged against any OpenAI-compatible `/v1/chat/completions` endpoint. With small edits to one Kubernetes manifest you can repoint at any GPU node, any engine, any model. See [§ Adapting the framework](#adapting-the-framework-to-your-infrastructure) below.
+The repo is structured as a framework — the methodology, scripts, and manifests are intentionally engine-, model-, and infrastructure-agnostic. The reference numbers below come from one specific run; the same scripts run unchanged against any OpenAI-compatible `/v1/chat/completions` endpoint. With small edits to one Kubernetes manifest you can repoint at any GPU node, any engine, any model. See [Adapting the framework](#adapting-the-framework-to-your-infrastructure) below.
 
-The exact hardware used for the reference run is documented in [§ Setup under test](#setup-under-test) for reproducibility; the framework itself does not depend on it.
+The exact hardware used for the reference run is documented in [Setup under test](#setup-under-test) for reproducibility; the framework itself does not depend on it.
 
 ---
 
