@@ -1,10 +1,12 @@
-# KV-Cache Bake-Off — A Portable Benchmarking Framework for LLM Inference Engines
+# KV-Cache Bench — A Portable Benchmarking Framework for LLM Inference Engines
 
-> A reproducible framework for measuring KV-cache behaviour, latency, and throughput of LLM inference engines on a fixed hardware target. Reference implementation runs NVIDIA NIM with two engines (TRT-LLM and vLLM) on the same model and the same 8× A100 SXM4 40GB node.
+> A reproducible framework for measuring KV-cache behaviour, latency, and throughput of LLM inference engines under identical conditions. Reference implementation compares two engines (TRT-LLM and vLLM) running the same reasoning model.
 >
 > **Reference result:** at 64K context with `nvidia/llama-3.3-nemotron-super-49b-v1.5`, **TRT-LLM completes a typical reasoning request 33–49% faster than vLLM** with identical quality (100% needle recall on both).
 
-The repo is structured as a framework — the methodology, scripts, and manifests are intentionally engine- and infrastructure-agnostic. The reference numbers below come from one specific cluster; the same scripts run unchanged against any OpenAI-compatible `/v1/chat/completions` endpoint. With small edits to one Kubernetes manifest you can repoint at any GPU node, any engine, any model. See [§ Adapting the framework](#adapting-the-framework-to-your-infrastructure) below.
+The repo is structured as a framework — the methodology, scripts, and manifests are intentionally engine-, model-, and infrastructure-agnostic. The reference numbers below come from one specific run; the same scripts run unchanged against any OpenAI-compatible `/v1/chat/completions` endpoint. With small edits to one Kubernetes manifest you can repoint at any GPU node, any engine, any model. See [§ Adapting the framework](#adapting-the-framework-to-your-infrastructure) below.
+
+The exact hardware used for the reference run is documented in [§ Setup under test](#setup-under-test) for reproducibility; the framework itself does not depend on it.
 
 ---
 
@@ -85,7 +87,7 @@ These hold for the specific setup under test (`nvidia/llama-3.3-nemotron-super-4
 
 | Item | Value |
 |---|---|
-| Hardware | OCI BM.GPU4.8 — 8× NVIDIA A100 SXM4 40GB, NVLink |
+| Hardware (reference run) | 8× NVIDIA A100 SXM4 40GB, NVLink, single node |
 | Model | `nvidia/llama-3.3-nemotron-super-49b-v1.5` |
 | Native context | 131,072 tokens |
 | Container | `nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1.5:1.14.0` |

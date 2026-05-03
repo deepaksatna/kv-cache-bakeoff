@@ -7,7 +7,7 @@ These are the things you should know before generalizing from these numbers.
 - **Single hardware platform: A100 SXM4 40GB.**
   Nothing here generalizes to H100, H200, B200, MI300X, TPU, or Apple Silicon. If you have those, you also have access to FP8 / FP4 KV which changes the entire story.
 - **Single node, NVLink intra-node only.** No multi-node scaling tested. NCCL bottlenecks at >8 GPUs (cross-node) would change throughput numbers significantly.
-- **Single OCI shape (BM.GPU4.8).** Different vendors / form factors of A100 (e.g. PCIe vs SXM, 80GB vs 40GB) will differ.
+- **Single A100 SKU and form factor (SXM4 40GB).** Different form factors of A100 (e.g. PCIe vs SXM, 80GB vs 40GB) and different host platforms will differ.
 
 ## Model
 

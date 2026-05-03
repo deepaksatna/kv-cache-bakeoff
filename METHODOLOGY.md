@@ -18,7 +18,7 @@ Given the same model, same hardware, and same KV precision (BF16), two different
 
 **Held constant:**
 - Model: `nvidia/llama-3.3-nemotron-super-49b-v1.5`
-- Hardware: 8× A100 SXM4 40GB on a single OCI BM.GPU4.8 node
+- Hardware: 8× A100 SXM4 40GB on a single bare-metal node, NVLink intra-node
 - KV precision: BF16
 - Tensor parallelism: 8
 - Pipeline parallelism: 1
